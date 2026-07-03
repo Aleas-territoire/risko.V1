@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tension sur la ressource en eau, Bassins versants France</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+// Patch de compatibilite : Leaflet.VectorGrid 1.3.0 appelle L.DomEvent._fakeStop
+// (methode privee avec underscore), retiree des versions recentes de Leaflet.
+// Bug connu, jamais corrige upstream : https://github.com/Leaflet/Leaflet.VectorGrid/issues/181
+L.DomEvent._fakeStop = function (e) {
+  e._simulated = true;
+  return e;
+};
+L.DomEvent.fakeStop = L.DomEvent._fakeStop;
+</script>
+<script src="https://unpkg.com/leaflet.vectorgrid@1.3.0/dist/Leaflet.VectorGrid.bundled.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #1a1f2b;
+    --paper: #f7f5f0;
+    --line: #d8d3c8;
+    --accent-blue: #1f78b4;
+    --accent-red: #e31a1c;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    font-family: Georgia, "Times New Roman", serif;
+    background: var(--paper);
+    color: var(--ink);
+  }
+  #app { display: grid; grid-template-columns: 340px 1fr; height: 100vh; }
+  #sidebar {
+    background: var(--paper);
+    border-right: 1px solid var(--line);
+    padding: 28px 24px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+  #sidebar-header { display: flex; flex-direction: column; gap: 6px; }
+  #sidebar h1 {
+    font-family: "Fraunces", Georgia, serif;
+    font-size: 1.7rem; line-height: 1.18; margin: 0;
+    font-weight: 600; font-optical-sizing: auto;
+    letter-spacing: -0.015em; color: var(--ink);
+  }
+  #sidebar .subtitle {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 0.74rem; color: #8a8377; letter-spacing: 0.01em; margin-top: 2px;
+  }
+  #intro-text {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 0.82rem; line-height: 1.55; color: #3a362f;
+    margin-bottom: 4px;
+  }
+  .divider { border: none; border-top: 1px solid var(--line); margin: 0; }
+  .legend-title {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em;
+    color: #6b6459; margin-bottom: 14px; font-weight: 600;
+  }
+  #bivariate-wrap { display: flex; align-items: stretch; gap: 12px; }
+  #bivariate-y-caption {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 4px; flex-shrink: 0; padding: 4px 0;
+  }
+  #bivariate-y-caption .arrow-up {
+    font-size: 0.9rem; font-weight: 700; color: var(--accent-red); line-height: 1;
+  }
+  #bivariate-y-caption .caption-text {
+    writing-mode: vertical-rl; transform: rotate(180deg);
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 0.78rem; font-weight: 600; color: var(--accent-red);
+    text-align: center;
+  }
+  #bivariate-rows { display: flex; flex-direction: column; gap: 4px; }
+  .biv-row { display: flex; align-items: center; gap: 4px; }
+  .biv-row-label {
+    width: 56px; font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 0.72rem; color: #6b6459; text-align: right; flex-shrink: 0;
+  }
+  .biv-cell {
+    width: 44px; height: 44px; border-radius: 4px; cursor: pointer;
+    transition: transform 0.12s ease; flex-shrink: 0;
+  }
+  .biv-cell:hover { transform: scale(1.1); z-index: 2; }
+  .biv-cell.dim { opacity: 0.25; }
+  #bivariate-x-row { display: flex; gap: 4px; margin-top: 5px; padding-left: 60px; }
+  #bivariate-x-row span {
+    width: 44px; font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 0.7rem; color: #6b6459; text-align: center; flex-shrink: 0;
+  }
+  #bivariate-x-caption {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 0.78rem; font-weight: 600; color: var(--accent-blue);
+    text-align: center; margin-top: 6px; padding-left: 60px;
+  }
+  .search-label {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 0.72rem; color: #6b6459; margin-bottom: 5px; display: block;
+  }
+  .search-box {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--line);
+    border-radius: 4px; font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 0.82rem; background: white;
+  }
+  .search-results {
+    max-height: 160px; overflow-y: auto;
+    font-family: "Helvetica Neue", Arial, sans-serif; font-size: 0.78rem;
+  }
+  .search-item { padding: 6px 8px; cursor: pointer; border-bottom: 1px solid #eee6d8; }
+  .search-item:hover { background: #eee6d8; }
+  .search-block { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+  .search-block:last-child { margin-bottom: 0; }
+  #footer-note {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 0.68rem; color: #8a8377; line-height: 1.5;
+    margin-top: auto; padding-top: 14px; border-top: 1px solid var(--line);
+  }
+  #footer-credit {
+    display: flex; align-items: center; gap: 10px;
+    margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line);
+  }
+  #footer-credit img { height: 22px; width: auto; flex-shrink: 0; }
+  #footer-credit-text {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 0.68rem; color: #8a8377; line-height: 1.4;
+  }
+  #footer-credit-text a { color: #6b6459; text-decoration: underline; }
+  #footer-credit-text a:hover { color: var(--accent-blue); }
+  #map { height: 100vh; }
+  .leaflet-popup-content-wrapper { border-radius: 6px; font-family: "Helvetica Neue", Arial, sans-serif; }
+  .popup-title { font-family: Georgia, serif; font-size: 0.92rem; font-weight: 600; margin-bottom: 6px; line-height: 1.3; }
+  .popup-row { font-size: 0.78rem; display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; }
+  .popup-row span:first-child { color: #6b6459; }
+  .popup-rank { font-size: 0.72rem; color: #6b6459; margin-top: 8px; padding-top: 8px; border-top: 1px solid #eee6d8; }
+  .popup-live { margin-top: 8px; padding-top: 8px; border-top: 1px solid #eee6d8; font-size: 0.76rem; }
+  .live-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 8px; border-radius: 10px; font-size: 0.72rem; font-weight: 600;
+  }
+  .live-badge.pas_de_restriction { background: #e8f5e9; color: #2e7d32; }
+  .live-badge.vigilance { background: #fff8e1; color: #a67c00; }
+  .live-badge.alerte { background: #ffe8d6; color: #b35900; }
+  .live-badge.alerte_renforcee { background: #ffd9d9; color: #b30000; }
+  .live-badge.crise { background: #67001f; color: white; }
+  .live-badge.inconnu { background: #eee; color: #888; }
+  .popup-live-label { color: #6b6459; margin-bottom: 4px; }
+  .popup-live-loading { color: #a39c8e; font-style: italic; }
+  .popup-live-details { margin-top: 6px; display: flex; flex-direction: column; gap: 3px; }
+  .popup-live-detail { display: flex; justify-content: space-between; align-items: center; font-size: 0.7rem; color: #3a362f; }
+  .live-badge.small { padding: 1px 6px; font-size: 0.64rem; }
+  .rank-gauge { margin-bottom: 10px; }
+  .rank-gauge:last-child { margin-bottom: 0; }
+  .rank-gauge-label { display: flex; justify-content: space-between; font-size: 0.72rem; color: #3a362f; margin-bottom: 3px; }
+  .rank-gauge-label b { font-weight: 600; }
+  .rank-gauge-track { position: relative; height: 6px; border-radius: 3px; background: #e8e4da; overflow: visible; }
+  .rank-gauge-fill { position: absolute; left: 0; top: 0; height: 100%; border-radius: 3px; }
+  .rank-gauge-cursor {
+    position: absolute; top: 50%; width: 10px; height: 10px; border-radius: 50%;
+    background: white; border: 2px solid; transform: translate(-50%, -50%);
+  }
+
+  /* Marqueur pulsant pour les bassins actuellement en alerte renforcee/crise (VigiEau temps reel) */
+  .alert-pulse-icon { position: relative; width: 14px; height: 14px; }
+  .alert-pulse-dot {
+    position: absolute; top: 50%; left: 50%; width: 10px; height: 10px;
+    margin: -5px 0 0 -5px; border-radius: 50%; background: #b30000;
+    box-shadow: 0 0 0 2px white;
+  }
+  .alert-pulse-dot.crise { background: #67001f; }
+  .alert-pulse-ring {
+    position: absolute; top: 50%; left: 50%; width: 10px; height: 10px;
+    margin: -5px 0 0 -5px; border-radius: 50%; background: #b30000;
+    animation: alert-pulse-anim 1.8s ease-out infinite;
+  }
+  .alert-pulse-ring.crise { background: #67001f; }
+  @keyframes alert-pulse-anim {
+    0%   { transform: scale(1); opacity: 0.7; }
+    100% { transform: scale(3.2); opacity: 0; }
+  }
+  #alert-legend {
+    display: none;
+    align-items: center; gap: 6px;
+    font-family: "Helvetica Neue", Arial, sans-serif; font-size: 0.7rem; color: #6b6459;
+    margin-top: 8px;
+  }
+  #alert-legend.visible { display: flex; }
+  #alert-legend .dot { width: 9px; height: 9px; border-radius: 50%; background: #b30000; flex-shrink: 0; }
+
+  #btn-toggle-sidebar { display: none; }
+
+  @media (max-width: 760px) {
+    #app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+    #sidebar {
+      border-right: none; border-bottom: 1px solid var(--line);
+      max-height: 55vh; padding: 14px 16px; gap: 14px;
+      transition: max-height 0.25s ease;
+    }
+    #sidebar.collapsed { max-height: 88px; overflow: hidden; }
+    #sidebar.collapsed #sidebar-body { display: none; }
+    #sidebar-header { gap: 4px; }
+    #sidebar h1 { font-size: 1.05rem; padding-right: 90px; }
+    #intro-text { font-size: 0.76rem; }
+    .biv-cell { width: 30px; height: 30px; }
+    .biv-row-label { width: 40px; font-size: 0.62rem; }
+    #bivariate-x-row { padding-left: 44px; }
+    #bivariate-x-row span { width: 30px; font-size: 0.6rem; }
+    #bivariate-x-caption { padding-left: 44px; }
+    #btn-info { font-size: 0.66rem; padding: 8px 10px; }
+    #map { height: 45vh; transition: height 0.25s ease; }
+    #app:has(#sidebar.collapsed) #map { height: calc(100vh - 88px); }
+
+    #btn-toggle-sidebar {
+      position: fixed; top: 10px; right: 10px; z-index: 1500;
+      display: flex; align-items: center; justify-content: center; gap: 5px;
+      width: auto; margin-top: 0; padding: 8px 12px;
+      font-family: "Helvetica Neue", Arial, sans-serif; font-size: 0.7rem; font-weight: 600;
+      background: var(--accent-blue); border: none; border-radius: 20px;
+      color: white; cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    }
+    #btn-toggle-sidebar:active { background: #185f8f; }
+    #toggle-icon { display: inline-block; transition: transform 0.2s ease; font-size: 0.85rem; }
+    #sidebar.collapsed #toggle-icon { transform: rotate(180deg); }
+
+    .leaflet-popup { max-width: 78vw !important; }
+    .leaflet-popup-content { margin: 10px 12px !important; }
+    .popup-title { font-size: 0.84rem; }
+    .popup-row { font-size: 0.72rem; }
+    .rank-gauge-label { font-size: 0.62rem; }
+    .rank-gauge-label b { display: block; margin-top: 1px; }
+    .popup-live-label { font-size: 0.68rem; }
+    .popup-live-detail { font-size: 0.66rem; }
+    .live-badge { font-size: 0.66rem; padding: 2px 7px; }
+    .live-badge.small { font-size: 0.6rem; padding: 1px 5px; }
+  }
+  @media (max-width: 380px) {
+    .leaflet-popup { max-width: 85vw !important; }
+  }
+  @media (max-width: 480px) {
+    #sidebar:not(.collapsed) { max-height: 60vh; }
+    #map { height: 40vh; }
+    #app:has(#sidebar.collapsed) #map { height: calc(100vh - 80px); }
+  }
+
+  #btn-info {
+    display: block; width: 100%; padding: 9px 12px;
+    font-family: "Helvetica Neue", Arial, sans-serif; font-size: 0.72rem;
+    background: white; border: 1px solid var(--line); border-radius: 4px;
+    color: var(--ink); cursor: pointer; text-align: center;
+  }
+  #btn-info:hover { background: #eee6d8; border-color: var(--accent-blue); }
+
+  #btn-download {
+    display: block; width: 100%; padding: 8px 12px; margin-top: 10px;
+    font-family: "Helvetica Neue", Arial, sans-serif; font-size: 0.7rem;
+    background: white; border: 1px solid var(--line); border-radius: 4px;
+    color: var(--accent-blue); text-decoration: none; text-align: center;
+    box-sizing: border-box;
+  }
+  #btn-download:hover { background: #eaf2f8; border-color: var(--accent-blue); }
+  #btn-download::before { content: "\2193  "; }
+
+  #info-modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(26,31,43,0.45);
+    z-index: 2000; align-items: center; justify-content: center; padding: 20px;
+  }
+  #info-modal-overlay.open { display: flex; }
+  #info-modal {
+    background: var(--paper); border-radius: 8px; max-width: 560px; width: 100%;
+    max-height: 82vh; overflow-y: auto; position: relative; padding: 28px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+  }
+  #info-modal-close {
+    position: absolute; top: 14px; right: 14px; width: 28px; height: 28px;
+    border: none; background: transparent; font-size: 1.3rem; cursor: pointer;
+    color: #6b6459; line-height: 1;
+  }
+  #info-tabs { display: flex; gap: 4px; margin-bottom: 18px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .info-tab {
+    font-family: "Helvetica Neue", Arial, sans-serif; font-size: 0.76rem;
+    padding: 8px 10px; background: none; border: none; cursor: pointer;
+    color: #6b6459; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .info-tab.active { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent-blue); }
+  .info-panel { display: none; font-family: "Helvetica Neue", Arial, sans-serif; font-size: 0.84rem; line-height: 1.6; color: #3a362f; }
+  .info-panel.active { display: block; }
+  .info-panel p { margin: 0 0 12px 0; }
+  .info-panel p:last-child { margin-bottom: 0; }
+  .info-panel ul { margin: 0 0 12px 0; padding-left: 20px; }
+  .info-panel li { margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="sidebar">
+    <div id="sidebar-header">
+      <h1>Votre commune est-elle expos&eacute;e &agrave; un risque de tension sur l'eau&nbsp;?</h1>
+      <div class="subtitle">Tension sur la ressource en eau par bassin versant, France m&eacute;tropolitaine, 2019&ndash;2024</div>
+      <button id="btn-toggle-sidebar" type="button" aria-label="Replier/d&eacute;plier le panneau">
+        <span id="toggle-icon">&and;</span> Panneau
+      </button>
+    </div>
+    <div id="sidebar-body">
+    <div id="intro-text">
+      Cette carte croise deux indicateurs par bassin versant&nbsp;: l'intensit&eacute; des s&eacute;cheresses
+      r&eacute;centes et le volume d'eau pr&eacute;lev&eacute; (agriculture, industrie, eau potable).
+      Cherchez votre commune ci-dessous, ou explorez directement la carte.
+      <br><br>
+      Au clic sur un bassin, la <strong>situation actuelle</strong> (vigilance, alerte, crise) est
+      interrog&eacute;e en direct sur VigiEau.
+    </div>
+    <hr class="divider">
+    <div>
+      <span class="search-label" style="margin-top: 4px;">Rechercher une commune</span>
+      <div class="search-block">
+        <input id="search-commune" class="search-box" type="text" placeholder="Ex. Niort, Béziers...">
+        <div id="results-commune" class="search-results"></div>
+      </div>
+      <span class="search-label">Rechercher un bassin versant</span>
+      <div class="search-block">
+        <input id="search-bv" class="search-box" type="text" placeholder="Ex. la Sèvre, l'Orb...">
+        <div id="results-bv" class="search-results"></div>
+      </div>
+    </div>
+    <hr class="divider">
+    <div>
+      <div class="legend-title">Intensit&eacute; crois&eacute;e</div>
+      <div id="bivariate-wrap">
+        <div id="bivariate-y-caption"><span class="arrow-up">&uarr;</span><span class="caption-text">S&eacute;cheresse</span></div>
+        <div>
+          <div id="bivariate-rows"></div>
+          <div id="bivariate-x-row"></div>
+          <div id="bivariate-x-caption">Pr&eacute;l&egrave;vement &rarr;</div>
+        </div>
+      </div>
+      <div id="alert-legend"><span class="dot"></span><span>Alerte renforc&eacute;e / crise actuellement en vigueur (VigiEau) &mdash; affich&eacute; uniquement pour les bassins en tension maximale historique (s&eacute;cheresse forte &times; pr&eacute;l&egrave;vement fort)</span></div>
+      <a id="btn-download" href="bassins_versants_tension_eau.csv" download>T&eacute;l&eacute;charger les donn&eacute;es (CSV, 6190 bassins)</a>
+    </div>
+    <hr class="divider">
+    <div id="footer-note">
+      <button id="btn-info" type="button">En savoir plus sur la m&eacute;thodologie du projet</button>
+    </div>
+    <div id="footer-credit">
+      <a href="https://aleas-territoire.github.io/geopi/" target="_blank" rel="noopener">
+        <img src="logo_geopi.png" alt="Logo G&eacute;opi">
+      </a>
+      <div id="footer-credit-text">
+        Webmap r&eacute;alis&eacute;e par Josselin Thonnelier pour <a href="https://aleas-territoire.github.io/geopi/" target="_blank" rel="noopener">G&eacute;opi</a> (2026).
+      </div>
+    </div>
+    </div>
+  </div>
+  <div id="map"></div>
+</div>
+
+<div id="info-modal-overlay">
+  <div id="info-modal">
+    <button id="info-modal-close" type="button" aria-label="Fermer">&times;</button>
+    <div id="info-tabs">
+      <button class="info-tab active" data-tab="lecture" type="button">Lecture de la carte</button>
+      <button class="info-tab" data-tab="methodo" type="button">M&eacute;thodologie</button>
+      <button class="info-tab" data-tab="limites" type="button">Limites m&eacute;thodologiques</button>
+    </div>
+    <div class="info-panel active" data-panel="lecture">
+      <p>Chaque forme color&eacute;e repr&eacute;sente un <strong>bassin versant</strong> (le territoire drain&eacute; par un cours d'eau et ses affluents). La couleur combine deux informations &agrave; la fois&nbsp;:</p>
+      <ul>
+        <li>plus la couleur tire vers le <strong>rouge</strong>, plus les s&eacute;cheresses y ont &eacute;t&eacute; fr&eacute;quentes et s&eacute;v&egrave;res&nbsp;;</li>
+        <li>plus elle tire vers le <strong>bleu</strong>, plus le volume d'eau pr&eacute;lev&eacute; y est important&nbsp;;</li>
+        <li>le <strong>violet fonc&eacute;</strong> signale les bassins cumulant les deux tensions.</li>
+      </ul>
+      <p>Cliquez sur un bassin pour voir son d&eacute;tail, ou utilisez les champs de recherche pour trouver votre commune ou un cours d'eau.</p>
+    </div>
+    <div class="info-panel" data-panel="methodo">
+      <p><strong>Score s&eacute;cheresse&nbsp;:</strong> reconstruit &agrave; partir de l'historique des arr&ecirc;t&eacute;s de restriction VigiEau (2019&ndash;2024). Chaque niveau (vigilance, alerte, alerte renforc&eacute;e, crise) est pond&eacute;r&eacute; puis multipli&eacute; par sa dur&eacute;e en jours, plafonn&eacute; &agrave; 60&nbsp;points/mois/zone, normalis&eacute; sur 100.</p>
+      <p><strong>Pr&eacute;l&egrave;vement&nbsp;:</strong> moyenne annuelle du volume pr&eacute;lev&eacute; 2019&ndash;2023 par commune (Hub'Eau/BNPE), agr&eacute;g&eacute;e par bassin versant, tous usages confondus (agriculture, industrie, eau potable).</p>
+      <p><strong>Classement&nbsp;:</strong> chaque axe est d&eacute;coup&eacute; en trois classes d'effectifs &eacute;gaux (terciles) parmi les 6190&nbsp;bassins versants topographiques de France m&eacute;tropolitaine (r&eacute;f&eacute;rentiel SANDRE/BD&nbsp;Topage).</p>
+      <p><strong>Situation actuelle&nbsp;:</strong> au clic sur un bassin, le niveau de restriction en vigueur aujourd'hui est interrog&eacute; en direct sur l'API VigiEau (donn&eacute;e temps r&eacute;el, distincte du score historique 2019&ndash;2024 utilis&eacute; pour la couleur de la carte).</p>
+    </div>
+    <div class="info-panel" data-panel="limites">
+      <p>Cette carte agr&egrave;ge pr&eacute;l&egrave;vements de surface et souterrains sans les distinguer&nbsp;; une nappe profonde en tension chronique peut ne pas appara&icirc;tre si aucune rivi&egrave;re ne s'ass&egrave;che en surface.</p>
+      <p>Le score s&eacute;cheresse ne couvre que les zones ayant fait l'objet d'un arr&ecirc;t&eacute; VigiEau&nbsp;: 80% des bassins affichent "faible" faute de donn&eacute;e, pas n&eacute;cessairement faute de tension.</p>
+      <p>Les pr&eacute;l&egrave;vements sous le seuil de redevance &eacute;chappent &agrave; Hub'Eau/BNPE.</p>
+      <p>Les classes "faible/mod&eacute;r&eacute;/fort" sont relatives &agrave; l'&eacute;chantillon fran&ccedil;ais, pas &agrave; des seuils r&eacute;glementaires.</p>
+      <p>La carte signale des corr&eacute;lations statistiques, pas des causalit&eacute;s.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+const PALETTE = {
+  "0-0": "#f0f0f0", "0-1": "#a8cbe0", "0-2": "#1f78b4",
+  "1-0": "#f2a693", "1-1": "#b8a1a8", "1-2": "#5c6b8a",
+  "2-0": "#e31a1c", "2-1": "#a83a52", "2-2": "#5c1a52"
+};
+const LABELS_S = {0: "S\u00e9cheresse faible/nulle", 1: "S\u00e9cheresse mod\u00e9r\u00e9e", 2: "S\u00e9cheresse forte"};
+const LABELS_P = {0: "Pr\u00e9l\u00e8vement faible", 1: "Pr\u00e9l\u00e8vement mod\u00e9r\u00e9", 2: "Pr\u00e9l\u00e8vement fort"};
+
+const rowsEl = document.getElementById('bivariate-rows');
+let rowsHTML = '';
+for (let s = 2; s >= 0; s--) {
+  const rowLabel = s===2 ? 'Forte' : (s===1 ? 'Mod.' : 'Faible');
+  rowsHTML += `<div class="biv-row"><div class="biv-row-label">${rowLabel}</div>`;
+  for (let p = 0; p <= 2; p++) {
+    const key = s + '-' + p;
+    rowsHTML += `<div class="biv-cell" data-class="${key}" style="background:${PALETTE[key]}" title="${LABELS_S[s]} / ${LABELS_P[p]}"></div>`;
+  }
+  rowsHTML += '</div>';
+}
+rowsEl.innerHTML = rowsHTML;
+document.getElementById('bivariate-x-row').innerHTML = '<span>Faible</span><span>Mod.</span><span>Fort</span>';
+
+const map = L.map('map', { zoomControl: false, maxZoom: 9 }).setView([46.6, 2.3], 6);
+L.control.zoom({ position: 'bottomright' }).addTo(map);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; les contributeurs <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
+  maxZoom: 19
+}).addTo(map);
+
+const TILES_URL = 'tiles/{z}/{x}/{y}.pbf';
+
+let activeFilter = null;
+
+const vectorLayer = L.vectorGrid.protobuf(TILES_URL, {
+  vectorTileLayerStyles: {
+    bassins: function(properties) {
+      const cb = properties.cb;
+      const dimmed = activeFilter && activeFilter !== cb;
+      return {
+        fill: true,
+        fillColor: PALETTE[cb] || "#ccc",
+        fillOpacity: dimmed ? 0.15 : 0.68,
+        weight: 0.3,
+        color: "#ffffff88"
+      };
+    }
+  },
+  interactive: true,
+  maxNativeZoom: 9,
+  minNativeZoom: 5,
+  minZoom: 5,
+  maxZoom: 9,
+  bounds: [[41.0, -5.5], [51.5, 10.0]],
+  keepBuffer: 2
+}).addTo(map);
+
+function fmtNum(n) {
+  return new Intl.NumberFormat('fr-FR').format(Math.round(n));
+}
+
+vectorLayer.on('click', function(e) {
+  const p = e.layer && e.layer.properties;
+  if (!p) return;
+  // Le nom n'est plus embarque dans les tuiles (allegement du poids de chargement).
+  // On le retrouve via l'index des bassins deja charge, par proximite du point clique.
+  p.nom = findNearestBassinName(e.latlng) || 'Bassin versant';
+  showBassinPopup(e.latlng, p);
+});
+
+function findNearestBassinName(latlng) {
+  if (!bvIndex) return null;
+  const lat = latlng.lat, lon = latlng.lng;
+  let best = null, bestDist = Infinity;
+  for (const b of bvIndex) {
+    const d = (b.lat - lat) ** 2 + (b.lon - lon) ** 2;
+    if (d < bestDist) { bestDist = d; best = b; }
+  }
+  return best ? best.n : null;
+}
+
+function rankGauge(label, pct, color) {
+  const p = Math.max(0, Math.min(100, pct));
+  return `
+    <div class="rank-gauge">
+      <div class="rank-gauge-label"><span>${label}</span><b>+ &eacute;lev&eacute; que ${p.toFixed(0)}% des bassins</b></div>
+      <div class="rank-gauge-track">
+        <div class="rank-gauge-fill" style="width:${p}%;background:${color}22"></div>
+        <div class="rank-gauge-cursor" style="left:${p}%;border-color:${color}"></div>
+      </div>
+    </div>
+  `;
+}
+
+const LIVE_LABELS = {
+  pas_de_restriction: 'Pas de restriction',
+  vigilance: 'Vigilance',
+  alerte: 'Alerte',
+  alerte_renforcee: 'Alerte renforc\u00e9e',
+  crise: 'Crise'
+};
+
+function showBassinPopup(latlng, p) {
+  const rangSech = bvIndex ? computeRangSecheresse(p.s) : null;
+  const liveId = 'live-' + Math.random().toString(36).slice(2);
+  const html = `
+    <div class="popup-title">${p.nom || 'Bassin versant'}</div>
+    <div class="popup-row"><span>Classe</span><span>${LABELS_S[p.cs]} / ${LABELS_P[p.cp]}</span></div>
+    <div class="popup-row"><span>Score s&eacute;cheresse</span><span>${(p.s||0).toFixed(1)}</span></div>
+    <div class="popup-row"><span>Quantile pr&eacute;l&egrave;vement</span><span>${(p.q||0).toFixed(1)}</span></div>
+    <div class="popup-row"><span>Volume moyen</span><span>${fmtNum(p.v||0)} m&sup3;/an</span></div>
+    <div class="popup-row"><span>Communes</span><span>${p.nc||0}</span></div>
+    <div class="popup-rank">
+      ${rankGauge('Pr&eacute;l&egrave;vement', p.q||0, '#1f78b4')}
+      ${rangSech !== null ? rankGauge('S&eacute;cheresse', rangSech, '#e31a1c') : ''}
+    </div>
+    <div class="popup-live" id="${liveId}">
+      <div class="popup-live-label">Situation actuelle (VigiEau)</div>
+      <div class="popup-live-loading">Chargement&hellip;</div>
+    </div>
+  `;
+  const popup = L.popup({minWidth: 220, maxWidth: 280}).setLatLng(latlng).setContent(html).openOn(map);
+  fetchLiveStatus(latlng, liveId);
+}
+
+function fetchLiveStatus(latlng, containerId) {
+  const lat = Array.isArray(latlng) ? latlng[0] : latlng.lat;
+  const lon = Array.isArray(latlng) ? latlng[1] : latlng.lng;
+  const directUrl = `https://api.vigieau.gouv.fr/api/zones?lon=${lon}&lat=${lat}`;
+  const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(directUrl)}`;
+
+  const ZONE_TYPE_LABELS = { SUP: 'Eau superficielle', SOU: 'Eau souterraine', AEP: 'Eau potable' };
+  const GRAVITE_ORDER = ['pas_de_restriction', 'vigilance', 'alerte', 'alerte_renforcee', 'crise'];
+
+  function render(zones) {
+    const el = document.getElementById(containerId);
+    if (!el) return; // popup ferme entre-temps
+    if (!Array.isArray(zones) || zones.length === 0) {
+      renderError();
+      return;
+    }
+    // niveau le plus grave parmi les zones (SUP/SOU/AEP) couvrant ce point
+    const pire = zones.reduce((acc, z) => {
+      const i = GRAVITE_ORDER.indexOf(z.niveauGravite);
+      return i > acc.i ? { i, z } : acc;
+    }, { i: -1, z: zones[0] }).z;
+
+    const niveau = pire.niveauGravite || 'inconnu';
+    const label = LIVE_LABELS[niveau] || 'Non disponible';
+    const dateFin = pire.arrete && pire.arrete.dateFinValidite
+      ? ` (jusqu'au ${new Date(pire.arrete.dateFinValidite).toLocaleDateString('fr-FR')})`
+      : '';
+
+    const detail = zones.map(z => {
+      const t = ZONE_TYPE_LABELS[z.type] || z.type;
+      const l = LIVE_LABELS[z.niveauGravite] || z.niveauGravite || '?';
+      return `<div class="popup-live-detail"><span>${t}</span><span class="live-badge ${z.niveauGravite || 'inconnu'} small">${l}</span></div>`;
+    }).join('');
+
+    el.innerHTML = `
+      <div class="popup-live-label">Situation actuelle (VigiEau)</div>
+      <span class="live-badge ${niveau}">${label}</span>
+      <div style="margin-top:2px;color:#8a8377;font-size:0.68rem;">${pire.nom || ''}${dateFin}</div>
+      <div class="popup-live-details">${detail}</div>
+    `;
+  }
+
+  function renderError() {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    el.innerHTML = `
+      <div class="popup-live-label">Situation actuelle (VigiEau)</div>
+      <span class="live-badge inconnu">Non disponible</span>
+      <div style="margin-top:4px;color:#8a8377;font-size:0.68rem;">
+        <a href="https://vigieau.gouv.fr" target="_blank" rel="noopener">Consulter vigieau.gouv.fr</a>
+      </div>
+    `;
+  }
+
+  fetch(directUrl)
+    .then(r => { if (!r.ok) throw new Error('status ' + r.status); return r.json(); })
+    .then(render)
+    .catch(() => {
+      // repli via proxy CORS si l'appel direct est bloque par la politique CORS de l'API
+      fetch(proxyUrl)
+        .then(r => { if (!r.ok) throw new Error('status ' + r.status); return r.json(); })
+        .then(render)
+        .catch(renderError);
+    });
+}
+
+document.querySelectorAll('.biv-cell').forEach(cell => {
+  cell.addEventListener('click', () => {
+    const cls = cell.dataset.class;
+    activeFilter = (activeFilter === cls) ? null : cls;
+    document.querySelectorAll('.biv-cell').forEach(c => {
+      c.classList.toggle('dim', activeFilter && c.dataset.class !== activeFilter);
+    });
+    vectorLayer.redraw();
+  });
+});
+
+// ---- Recherche commune / bassin versant ----
+let communesIndex = null;
+let bvIndex = null;
+let sechSorted = null;
+
+Promise.all([
+  fetch('communes_index.json').then(r => r.json()),
+  fetch('bv_index.json').then(r => r.json())
+]).then(([communes, bassins]) => {
+  communesIndex = communes;
+  bvIndex = bassins;
+  sechSorted = bassins.map(b => b.s).sort((a,b) => a-b);
+}).catch(err => console.error('Erreur chargement index recherche', err));
+
+function computeRangSecheresse(score) {
+  if (!sechSorted) return null;
+  let lo = 0, hi = sechSorted.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (sechSorted[mid] < score) lo = mid + 1; else hi = mid;
+  }
+  return (lo / (sechSorted.length - 1)) * 100;
+}
+
+function setupSearch(inputId, resultsId, index, onSelect) {
+  const input = document.getElementById(inputId);
+  const results = document.getElementById(resultsId);
+  input.addEventListener('input', () => {
+    const q = input.value.trim().toLowerCase();
+    results.innerHTML = '';
+    if (q.length < 2 || !index) return;
+    const matches = index.filter(item => item.n.toLowerCase().includes(q)).slice(0, 12);
+    matches.forEach(item => {
+      const div = document.createElement('div');
+      div.className = 'search-item';
+      div.textContent = item.n;
+      div.addEventListener('click', () => {
+        results.innerHTML = '';
+        input.value = item.n;
+        onSelect(item);
+      });
+      results.appendChild(div);
+    });
+  });
+}
+
+function initSearchWhenReady() {
+  if (!communesIndex || !bvIndex) {
+    setTimeout(initSearchWhenReady, 200);
+    return;
+  }
+  setupSearch('search-commune', 'results-commune', communesIndex, (commune) => {
+    const bassin = bvIndex.find(b => b.id === commune.bv);
+    map.setView([commune.lat, commune.lon], 11);
+    if (bassin) {
+      showBassinPopup([bassin.lat, bassin.lon], {
+        nom: bassin.n, cs: bassin.cs, cp: bassin.cp, s: bassin.s,
+        q: bassin.q, v: bassin.v, nc: bassin.nc
+      });
+    }
+  });
+  setupSearch('search-bv', 'results-bv', bvIndex, (bassin) => {
+    map.setView([bassin.lat, bassin.lon], 11);
+    showBassinPopup([bassin.lat, bassin.lon], {
+      nom: bassin.n, cs: bassin.cs, cp: bassin.cp, s: bassin.s,
+      q: bassin.q, v: bassin.v, nc: bassin.nc
+    });
+  });
+}
+initSearchWhenReady();
+
+// ---- Surbrillance des bassins en tension maximale historique (2-2) actuellement en alerte/crise ----
+// Approche pragmatique: on n'interroge l'API que pour les 221 bassins deja en tension max historique,
+// pas les 6190, pour rester raisonnable vis-a-vis de l'API publique VigiEau.
+function startAlertHighlightScan() {
+  if (!bvIndex) { setTimeout(startAlertHighlightScan, 300); return; }
+
+  const candidats = bvIndex.filter(b => b.cs === 2 && b.cp === 2);
+  if (candidats.length === 0) return;
+
+  const alertMarkers = L.layerGroup().addTo(map);
+  let found = 0;
+
+  function checkOne(i) {
+    if (i >= candidats.length) return;
+    const b = candidats[i];
+    const directUrl = `https://api.vigieau.gouv.fr/api/zones?lon=${b.lon}&lat=${b.lat}`;
+    const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(directUrl)}`;
+
+    function handle(zones) {
+      if (!Array.isArray(zones) || zones.length === 0) return;
+      const GRAVITE_ORDER = ['pas_de_restriction', 'vigilance', 'alerte', 'alerte_renforcee', 'crise'];
+      const pire = zones.reduce((acc, z) => {
+        const gi = GRAVITE_ORDER.indexOf(z.niveauGravite);
+        return gi > acc.i ? { i: gi, z } : acc;
+      }, { i: -1, z: zones[0] }).z;
+
+      if (pire.niveauGravite === 'alerte_renforcee' || pire.niveauGravite === 'crise') {
+        found++;
+        const cls = pire.niveauGravite === 'crise' ? 'crise' : '';
+        const icon = L.divIcon({
+          className: '',
+          html: `<div class="alert-pulse-icon"><div class="alert-pulse-ring ${cls}"></div><div class="alert-pulse-dot ${cls}"></div></div>`,
+          iconSize: [14, 14]
+        });
+        const marker = L.marker([b.lat, b.lon], { icon, interactive: true, zIndexOffset: 500 });
+        marker.on('click', () => {
+          showBassinPopup([b.lat, b.lon], { nom: b.n, cs: b.cs, cp: b.cp, s: b.s, q: b.q, v: b.v, nc: b.nc });
+        });
+        marker.addTo(alertMarkers);
+        document.getElementById('alert-legend').classList.add('visible');
+      }
+    }
+
+    fetch(directUrl)
+      .then(r => { if (!r.ok) throw new Error(); return r.json(); })
+      .then(handle)
+      .catch(() => {
+        fetch(proxyUrl).then(r => { if (!r.ok) throw new Error(); return r.json(); }).then(handle).catch(() => {});
+      })
+      .finally(() => {
+        // espacement des requetes pour rester respectueux de l'API publique
+        setTimeout(() => checkOne(i + 1), 120);
+      });
+  }
+
+  checkOne(0);
+}
+startAlertHighlightScan();
+
+// ---- Toggle du panneau lateral sur mobile ----
+const sidebarEl = document.getElementById('sidebar');
+const toggleBtn = document.getElementById('btn-toggle-sidebar');
+const toggleTextNode = toggleBtn.childNodes[toggleBtn.childNodes.length - 1];
+toggleBtn.addEventListener('click', () => {
+  const collapsed = sidebarEl.classList.toggle('collapsed');
+  toggleTextNode.textContent = collapsed ? ' Panneau' : ' Panneau';
+  setTimeout(() => map.invalidateSize(), 260);
+});
+
+// ---- Modale d'information (Lecture / Methodologie / Limites) ----
+const infoOverlay = document.getElementById('info-modal-overlay');
+document.getElementById('btn-info').addEventListener('click', () => {
+  infoOverlay.classList.add('open');
+});
+document.getElementById('info-modal-close').addEventListener('click', () => {
+  infoOverlay.classList.remove('open');
+});
+infoOverlay.addEventListener('click', (e) => {
+  if (e.target === infoOverlay) infoOverlay.classList.remove('open');
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') infoOverlay.classList.remove('open');
+});
+document.querySelectorAll('.info-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.info-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.info-panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.querySelector(`.info-panel[data-panel="${tab.dataset.tab}"]`).classList.add('active');
+  });
+});
+</script>
+</body>
+</html>
