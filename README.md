@@ -4,6 +4,9 @@ Carte interactive croisant l'intensité des sécheresses (VigiEau, 2019-2024) et
 volume d'eau prélevé (Hub'Eau/BNPE, moyenne 2019-2023) par bassin versant
 topographique (SANDRE), pour la France métropolitaine.
 
+Recherche par commune ou par bassin versant, situation actuelle en direct (API
+VigiEau) au clic sur un bassin, et export des données au format CSV.
+
 ## Voir la carte
 
 https://aleas-territoire.github.io/risko.V1/
@@ -13,6 +16,7 @@ https://aleas-territoire.github.io/risko.V1/
 - `index.html` : la web map (Leaflet + Leaflet.VectorGrid)
 - `tiles/` : tuiles vectorielles MVT (zoom 5 à 9), générées avec [Tippecanoe](https://github.com/mapbox/tippecanoe)
 - `bv_index.json`, `communes_index.json` : index de recherche (bassins versants, communes)
+- `bassins_versants_tension_eau.csv` : export des données bivariées (téléchargeable depuis la carte)
 - `logo_geopi.png` : logo Géopi
 - `serve.py` : petit serveur local pour tester avant publication
 
