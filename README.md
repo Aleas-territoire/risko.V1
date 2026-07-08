@@ -42,3 +42,4 @@ percentile national.
 ## Réalisation
 
 Webmap réalisée par Josselin Thonnelier pour [Géopi](https://github.com/Geopi-Consulting) (2026).
+
